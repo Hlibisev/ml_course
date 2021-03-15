@@ -76,14 +76,13 @@ class DecisionTreeClassifier:
         self.number_feat_bag = None
 
     def fit(self, X, y):
-        # init
         if self.freq_feat_bag is None:
             self.number_feat_bag = int(np.sqrt(X.shape[1]))
         else:
             self.number_feat_bag = int(X.shape[1] * self.freq_feat_bag)
 
         self.y = y
-        self.n_class = len(np.unique(y))
+        self.number_of_classes = len(np.unique(y))
         self.root = DecisionTreeNode(ind=np.arange(len(X)))
         nodes = {self.root}  # type: Set[DecisionTreeNode]
 
@@ -94,8 +93,7 @@ class DecisionTreeClassifier:
                     split_dim, split_value = self.find_split(X[node.ind], y[node.ind])
 
                     # if all y at same class
-                    if split_dim is None:
-                        continue
+                    if split_dim is None: continue
 
                     sep = X[node.ind, split_dim] < split_value
                     left_ind, right_ind = node.ind[sep], node.ind[~sep]
@@ -123,22 +121,22 @@ class DecisionTreeClassifier:
         return self._traversal(X, ind, self.root)
 
     def predict(self, X):
-        proba = self.predict_proba(X)
-        return [max(p.keys(), key=lambda k: p[k]) for p in proba]
+        probabilities = self.predict_proba(X)
+        return [max(p.keys(), key=lambda k: p[k]) for p in probabilities]
 
     def find_split(self, X, y):
         quality = -np.inf
-        split_dim, split_value = -1, -1  # feature positin, impurity
-        con_fy = np.vstack([X[:, 0], y]).T  # some feature, y
-        all_y = np.unique(y, return_counts=True)
+        split_dim, split_value = -1, -1  # feature position, impurity
+        feature_and_y = np.vstack([X[:, 0], y]).T  # some feature, y
+        unique_y = np.unique(y, return_counts=True)
 
         # If all y are same, do nothing
-        if len(all_y[0]) == 1:
+        if len(unique_y[0]) == 1:
             return None, None
 
-        left_counter = np.zeros(self.n_class)
-        right_counter = np.zeros(self.n_class)
-        right_counter[all_y[0]] += all_y[1]
+        left_counter = np.zeros(self.number_of_classes)
+        right_counter = np.zeros(self.number_of_classes)
+        right_counter[unique_y[0]] += unique_y[1]
 
         # feature bagging
         if self.feat_bag is True:
@@ -147,21 +145,21 @@ class DecisionTreeClassifier:
             features = [i for i in range(X.shape[1])]
 
         for feature in features:
-            con_fy[:, 0] = X[:, feature]
-            sort_fy = np.array(sorted(con_fy, key=lambda x: x[0]))  # sort by feature
+            feature_and_y[:, 0] = X[:, feature]
+            sorted_feat_and_y = np.array(sorted(feature_and_y, key=lambda x: x[0]))  # sort by feature
 
-            values_X, unique_indexes = np.unique(sort_fy[:, 0], return_index=True)
+            values_X, indexes_of_unique = np.unique(sorted_feat_and_y[:, 0], return_index=True)
 
             # max iterations is equal max_iters
             if len(values_X) > self.max_iter:
                 indexes = sorted(np.random.choice(len(values_X), self.max_iter, replace=False))
             else:
-                indexes = unique_indexes
+                indexes = indexes_of_unique
 
             # clear counters
             left_counter *= 0
             right_counter *= 0
-            right_counter[all_y[0]] += all_y[1]
+            right_counter[unique_y[0]] += unique_y[1]
             left_sum = 0
             right_sum = len(y)
 
@@ -170,17 +168,16 @@ class DecisionTreeClassifier:
                     ind1, ind2 = 0, indexes[i]
                 else:
                     ind1, ind2 = indexes[i - 1], indexes[i]
-                y_values, counts = np.unique(sort_fy[ind1: ind2, 1], return_counts=True)
+                values_in_segment, counts = np.unique(sorted_feat_and_y[ind1: ind2, 1], return_counts=True)
 
                 # update info about left and right
-                left_counter[y_values.astype(int)] += counts
-                right_counter[y_values.astype(int)] -= counts
+                left_counter[values_in_segment.astype(int)] += counts
+                right_counter[values_in_segment.astype(int)] -= counts
                 left_sum += sum(counts)
                 right_sum -= sum(counts)
 
                 # to evade warning
-                if left_sum == 0:
-                    continue
+                if left_sum == 0: continue
 
                 freq_left = left_counter / left_sum
                 freq_right = right_counter / right_sum
@@ -190,7 +187,7 @@ class DecisionTreeClassifier:
                 g = gain2(self.criterion, right_sum, left_sum, freq_right[r], freq_left[l])
 
                 if g > quality:
-                    split_dim, split_value = feature, sort_fy[ind2, 0]
+                    split_dim, split_value = feature, sorted_feat_and_y[ind2, 0]
                     quality = g
         return split_dim, split_value
 
@@ -198,16 +195,13 @@ class DecisionTreeClassifier:
         if node.is_leaf():
             values, counts = np.unique(self.y[node.ind], return_counts=True)
             freq = counts / sum(counts)
-            y_pred = dict(zip(values, freq))
-            y_for_all = [y_pred for _ in range(len(ind))]
-            return y_for_all
+            predict = dict(zip(values, freq))
+            return [predict for _ in range(len(ind))]
 
-        sep = X[ind, node.split_dim] < node.split_value
-        left_ind, right_ind = ind[sep], ind[~sep]
+        separation = X[ind, node.split_dim] < node.split_value
+        left_ind, right_ind = ind[separation], ind[~separation]
 
-        y_pred = np.zeros(len(ind), dtype=object)
-        y_pred[sep] = self._traversal(X, left_ind, node.left)
-        y_pred[~sep] = self._traversal(X, right_ind, node.right)
-        return y_pred
-
-
+        predict = np.zeros(len(ind), dtype=object)
+        predict[separation] = self._traversal(X, left_ind, node.left)
+        predict[~separation] = self._traversal(X, right_ind, node.right)
+        return predict
